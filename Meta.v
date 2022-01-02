@@ -1,19 +1,10 @@
-Require Import Coqprime.elliptic.ZEll.
-Require Import Coqprime.elliptic.ZEll.
-Require Import Coq.ZArith.Znumtheory.
-Require Import Coq.ZArith.BinInt.
-
-From STLCZK Require Import GaloisField.
-From STLCZK Require Import Ltac.
-From Coq Require Import Vectors.VectorDef.
 From Coq Require Import Init.Nat.
 From Coq  Require Import Program.Equality.
 
 Set Implicit Arguments.
 Set Maximal Implicit Insertion.
 
-Module Stlc(Import PF: GaloisField.GaloisField).
-  Import PF.
+Module Stlc.
 
   (** Use the same reified type for the whole development *)
   Inductive type : Type :=
@@ -63,7 +54,7 @@ Module Stlc(Import PF: GaloisField.GaloisField).
 
     Inductive Term: type -> Type :=
     (* Constants *)
-    | NUM: Fp -> Term <{{ Num }}>
+    | NUM: nat -> Term <{{ Num }}>
     | BOOL: bool -> Term <{{ Bool }}>
     (* Finite field arithmetic *)
     | ADD: Term <{{ Num }}> -> Term <{{ Num }}> -> Term <{{ Num }}>
@@ -83,7 +74,7 @@ Module Stlc(Import PF: GaloisField.GaloisField).
     Fixpoint typeDenote (t : type) : Set :=
       match t with
       | <{{ Bool }}> => bool
-      | <{{ Num }}> => Fp
+      | <{{ Num }}> => nat
       | <{{ t1 -> t2 }}> => typeDenote t1 -> typeDenote t2
       end.
 
@@ -185,11 +176,11 @@ Module Stlc(Import PF: GaloisField.GaloisField).
     | VAR v => v
     | NUM f => f
     | BOOL v => v
-    | ADD f1 f2 => pkplus (termDenote f1) (termDenote f2)
-    | SUB f1 f2 => pksub (termDenote f1) (termDenote f2)
-    | MUL f1 f2 => pkmul (termDenote f1) (termDenote f2)
-    | DIV f1 f2 => pkdiv (termDenote f1) (termDenote f2)
-    | EQ f1 f2 => if eq_field (termDenote f1) (termDenote f2) then true else false
+    | ADD f1 f2 => (termDenote f1) + (termDenote f2)
+    | SUB f1 f2 => (termDenote f1) - (termDenote f2)
+    | MUL f1 f2 => (termDenote f1) * (termDenote f2)
+    | DIV f1 f2 => (termDenote f1) / (termDenote f2)
+    | EQ f1 f2 => eqb (termDenote f1) (termDenote f2)
     (** Commuting conversion if/app *)
     (* | @ITE _ <{{ a -> b }}> c t e =>
       fun y => if (termDenote c) then (termDenote t) y else (termDenote e) y
@@ -200,7 +191,6 @@ Module Stlc(Import PF: GaloisField.GaloisField).
     | APP e1 e2 => (termDenote e1) (termDenote e2)
     | LAM e' => fun x => termDenote (e' x)
     end.
-
 
   Fixpoint mtermDenote t (e: IM (Term typeDenote) t) : typeDenote t :=
     match e with
@@ -225,12 +215,8 @@ Module Stlc(Import PF: GaloisField.GaloisField).
     | <{{ a -> b }}> => Nbe_lam (resolver a) (resolver b)
     end.
 
-  (** This function does *partial* reflection of the object language while
-      maintaining the syntax of the metalanguage! *)
   Fixpoint mreflect t (e: IM (Term typeDenote) t): IM typeDenote t :=
     match e with
-    | @ITE _ <{{ a -> b }}> c e1 e2 =>
-      
     | ITE c e1 e2 =>
       ITE (BOOL (reflect (resolver <{{ Bool }}>) c))
           (mreflect e1) (mreflect e2)
@@ -243,7 +229,7 @@ Module Stlc(Import PF: GaloisField.GaloisField).
     RET (reify (resolver t) e).
 
   Definition normalize {t: type} (e: Term typeDenote t) : Term typeDenote t :=
-    reif (refl e).
+    reify (resolver t) (reflect (resolver t) e).
                                        
   Inductive fof: type -> Prop :=
   | fo_bool: fof <{{ Bool }}>
@@ -255,12 +241,12 @@ Module Stlc(Import PF: GaloisField.GaloisField).
       fof <{{ a }}> ->
       fof <{{ Num -> a }}>.
 
-  Inductive value: forall (t: type), Term typeDenote t -> Prop :=
+  Set Implicit Arguments.
+  Inductive value: forall {t: type}, Term typeDenote t -> Prop :=
   | Value_bool: forall x, @value <{{ Bool }}> (@VAR typeDenote <{{ Bool }}> x)
   | Value_btrue: @value <{{ Bool }}> <{ true }>
   | Value_bfalse: @value <{{ Bool }}> <{ false }>
-  | Value_var: forall x, @value <{{ Num }}> (@VAR typeDenote <{{ Num }}> x)
-  | Value_const: forall (x: Fp), @value <{{ Num }}> (NUM x).
+  | Value_const: forall (x: nat), value (NUM x).
   
   Inductive hnff: forall (t: type), Term typeDenote t -> Prop :=
   | HNF_bool_ar: forall a f,

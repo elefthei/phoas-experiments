@@ -1,6 +1,8 @@
 From Coq Require Import Nat.
 From Coq Require Import Program.Equality.
 
+Set Maximal Implicit Insertion.
+
 Module Stlc.
 
   (** Use the same reified type for the whole development *)
@@ -32,11 +34,11 @@ Module Stlc.
     | LAM: forall a b, (var a -> Term b) -> Term <{{ a ->  b }}>.
   End vars.
 
-  Arguments RET [var a].
+  Arguments RET {var a}.
   Arguments NUM {var}.
   Arguments ADD {var}.
-  Arguments APP [var a b].
-  Arguments LAM [var a b].
+  Arguments APP {var a b}.
+  Arguments LAM {var a b}.
 
   (* Syntax *)
   Declare Custom Entry stlc.
@@ -60,7 +62,7 @@ Module Stlc.
   Notation "{ x }" := x (in custom stlc at level 1, x constr).
 
   Class Denotation (v: type -> Type) := {
-    denote{t}(e: Term v t): v t
+      denote{t}(e: Term v t): v t;
                                       }.
 
   Fixpoint termDenote {t: type} (e : Term typeDenote t) : typeDenote t :=
@@ -80,16 +82,15 @@ Module Stlc.
     | APP e1 e2 => APP (termFlatten e1) (termFlatten e2)
     | LAM e' => LAM (fun x => termFlatten (e' (RET x)))
     end.
-  
-  #[refine]
-  Instance baseDenotation: Denotation typeDenote := {}.
-  intro; exact (termDenote).
-  Defined.
 
-  #[refine]
-  Instance stepDenotation v `{Denotation v}: Denotation (Term v) := {}.
-  intro; exact (termFlatten).
-  Defined.
+  Instance baseDenotation: Denotation typeDenote := {
+      denote t e := termDenote e
+    }.
+  
+  Instance stepDenotation v `{Denotation v}: Denotation (Term v) := {
+      denote t e := termFlatten e
+    }.
+
 
   (** Demo *)
   Fixpoint add1 {t: type} {v: type -> Type} (e: Term v t): Term v t :=
@@ -106,6 +107,8 @@ Module Stlc.
   Definition l3 :=
     ltac:(meta <{ \x, @x + #1 + (@ (#3 + (@( #1)))) }>).
 
+  Check l3.
+
   Compute add1 l3.          (* = <{ \ x, @ x + #2 + @ (#3) + @ (#1) }> *)
   Compute denote (add1 l3). (* = <{ \ x, @ x + #2 + (#3 + @ (#1)) }> *)
   Compute denote (add1 (denote (add1 l3))).
@@ -115,10 +118,6 @@ Module Stlc.
   Compute denote (denote (add1 l3)).
   Compute denote (denote (denote (add1 l3))).
 
-
-  Compute add1 (termFlatten (add1 t)).
-  Compute add1 t.
-  Compute termDenote (termFlatten t).
   (* Normalization via reify/reflect Danvy et al. *)
   Class Nbe (t: type) := {
     reify: typeDenote t -> Term typeDenote t;
@@ -148,16 +147,22 @@ Module Stlc.
   Definition normalize {t: type} (e: Term typeDenote t): Term typeDenote t :=
     @reify t (resolver t) (@reflect t (resolver t) e).
 
+  Compute normalize <{ ((\x, @x + #1) #2) + #1 }>.
+  
   Inductive fof: type -> Prop :=
   | fo_num: fof <{{ Num }}>
   | fof_num: forall a,
       fof <{{ a }}> ->
       fof <{{ Num -> a }}>.
 
+  Hint Constructors fof: core.
+
   Inductive value: forall {t: type}, Term typeDenote t -> Prop :=
   | Value_var: forall x, @value <{{ Num }}> (@RET typeDenote <{{ Num }}> x)
   | Value_const: forall (x: nat), @value <{{ Num }}> (NUM x).
 
+  Hint Constructors value: core.
+  
   Inductive hnff: forall (t: type), Term typeDenote t -> Prop :=
   | HNF_num_ar: forall a f,
       (forall (arg: typeDenote <{{ Num }}>), hnff <{{ a }}> (f arg)) ->
@@ -165,14 +170,14 @@ Module Stlc.
   | HNF_num: forall e,
       value e ->
       hnff <{{ Num }}> e.
-
+  
+  Hint Constructors hnff: core.
+  
   Theorem normalize_correct: forall (t: type) (e: Term typeDenote t),
       fof t  ->
       hnff t (normalize e).
   Proof with eauto.
-    induction t0;
-      intros; dependent destruction e; cbn; try constructor;
-        inversion H; clear H; subst; cbn; try constructor...
+    induction t; intros e H; dependent destruction e; inversion H; subst; cbn...
   Defined.
 
 End Stlc.
