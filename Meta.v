@@ -177,14 +177,10 @@ Module Stlc.
     | NUM f => f
     | BOOL v => v
     | ADD f1 f2 => (termDenote f1) + (termDenote f2)
-    | SUB f1 f2 => (termDenote f1) - (termDenote f2)
+3    | SUB f1 f2 => (termDenote f1) - (termDenote f2)
     | MUL f1 f2 => (termDenote f1) * (termDenote f2)
     | DIV f1 f2 => (termDenote f1) / (termDenote f2)
     | EQ f1 f2 => eqb (termDenote f1) (termDenote f2)
-    (** Commuting conversion if/app *)
-    (* | @ITE _ <{{ a -> b }}> c t e =>
-      fun y => if (termDenote c) then (termDenote t) y else (termDenote e) y
-    | ITE c t e => if (termDenote c) then termDenote t else termDenote e *)
     | AND b1 b2 => andb (termDenote b1) (termDenote b2)
     | OR b1 b2 => orb (termDenote b1) (termDenote b2)
     | NOT b => negb (termDenote b)
@@ -192,6 +188,9 @@ Module Stlc.
     | LAM e' => fun x => termDenote (e' x)
     end.
 
+
+  Inductive norm t: Term (IM typeDenote) t -> Term (IM typeDenote) t -> Prop :=
+  | 
   Fixpoint mtermDenote t (e: IM (Term typeDenote) t) : typeDenote t :=
     match e with
     | ITE c e1 e2 => if (termDenote c) then (mtermDenote e1) else mtermDenote e2

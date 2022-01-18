@@ -17,15 +17,12 @@ Module Stlc.
   Notation "S -> T" := (TArrow S T) (in custom stlc_ty at level 2, right associativity).
   Notation "'Num'" := TNum (in custom stlc_ty at level 0).
 
-  (* begin typeDenote *)
   Fixpoint typeDenote (t : type) : Set :=
     match t with
     | <{{ Num }}> => nat
     | <{{ t1 -> t2 }}> => typeDenote t1 -> typeDenote t2
     end.
-  (* end typeDenote *)
-  
-  (* begin syntax *)
+
   Section vars.
     Variable var : type -> Type.
 
@@ -36,8 +33,7 @@ Module Stlc.
     | RET: forall a, var a -> Term a
     | LAM: forall a b, (var a -> Term b) -> Term <{{ a ->  b }}>.
   End vars.
-  (* end syntax *)
-  
+
   Arguments RET {var a}.
   Arguments NUM {var}.
   Arguments ADD {var}.
@@ -65,11 +61,13 @@ Module Stlc.
   Notation "@ n" := (RET n) (in custom stlc at level 0, n custom stlc at level 1).
   Notation "{ x }" := x (in custom stlc at level 1, x constr).
 
-  Class Denotation (v: type -> Type) := {
-      denote{t}(e: Term v t): v t;
-                                      }.
-
-  (* begin termDenote *)
+  (* Normalization via reify/reflect Danvy et al. and denotation for metaprogramming *)
+  Class Nbe (v: type->Type) (t: type) := {
+      reify: v t -> Term v t;
+      reflect: Term v t -> v t;
+      normalize: Term v t -> Term v t := fun x => reify (reflect x);
+    }.
+  
   Fixpoint termDenote {t: type} (e : Term typeDenote t) : typeDenote t :=
     match e in (Term _ t) return (typeDenote t) with
     | RET v => v
@@ -78,7 +76,6 @@ Module Stlc.
     | APP e1 e2 => (termDenote e1) (termDenote e2)
     | LAM e' => fun x => termDenote (e' x)
     end.
-  (* end termDenote *)
   
   Fixpoint termFlatten {t: type} {v: type -> Type} (e: Term (Term v) t): Term v t :=
     match e with
@@ -89,15 +86,6 @@ Module Stlc.
     | LAM e' => LAM (fun x => termFlatten (e' (RET x)))
     end.
 
-  Instance baseDenotation: Denotation typeDenote := {
-      denote t e := termDenote e
-    }.
-  
-  Instance stepDenotation v `{Denotation v}: Denotation (Term v) := {
-      denote t e := termFlatten e
-    }.
-
-
   (** Demo *)
   Fixpoint add1 {t: type} {v: type -> Type} (e: Term v t): Term v t :=
     match e with
@@ -107,48 +95,58 @@ Module Stlc.
     | LAM e' => LAM (fun x => add1 (e' x))
     | RET v => RET v
     end.
+
+  (** Two orthogonal structural recursions via instances.
+      1. On v: type -> Type (metaprogramming induction)
+      2. On t: type (induction on type)
+   *)
+  Instance Nbe_lam a b `{Nbe typeDenote a} `{Nbe typeDenote b}: Nbe typeDenote <{{ a -> b }}> := {
+      reify v := LAM (fun x => reify (v (reflect (RET x))));
+      reflect e := fun x => reflect (APP e (reify x))
+    }.
+  
+  Instance Nbe_num : Nbe typeDenote <{{ Num }}> := {
+    reify v := NUM v;
+    reflect v := termDenote v;
+                                       }.
+
+  Instance NStep_lam v a b `{Nbe v <{{ a -> b }}>}: Nbe (Term v) <{{ a -> b }}> := {
+      reify v := RET v; 
+      reflect e := termFlatten e
+    }.
+  
+  Instance NStep_num v `{Nbe v <{{ Num }}>}: Nbe (Term v) <{{ Num }}> := {
+      reify v := RET v;
+      reflect e := termFlatten e
+    }.
   
   Tactic Notation "meta" uconstr(x) := refine x; exact typeDenote.
   
   Definition l3 :=
     ltac:(meta <{ \x, @x + #1 + (@ (#3 + (@( #1)))) }>).
-
   Check l3.
 
   Compute add1 l3.          (* = <{ \ x, @ x + #2 + @ (#3) + @ (#1) }> *)
-  Compute denote (add1 l3). (* = <{ \ x, @ x + #2 + (#3 + @ (#1)) }> *)
-  Compute denote (add1 (denote (add1 l3))).
+  Compute reflect (add1 l3). (* = <{ \ x, @ x + #2 + (#3 + @ (#1)) }> *)
+  Eval cbv in reify (reify (normalize (add1 (reflect (reflect l3))))).
                             (* = <{ \ x, @ x + #3 + #4 + #1 }> *)
-  Compute denote (denote (add1 (denote (add1 l3)))).
+  Compute reflect (reflect (add1 (reflect (add1 l3)))).
                             (* = <{ \x, 5 }> *)
-  Compute denote (denote (add1 l3)).
-  Compute denote (denote (denote (add1 l3))).
+  Compute reflect (reflect (add1 l3)).
+  Compute reflect (reflect (reflect (add1 l3))).
 
-  (* Normalization via reify/reflect Danvy et al. *)
-  (* begin nbe *)
-  Class Nbe (t: type) := {
-    reify: typeDenote t -> Term typeDenote t;
-    reflect: Term typeDenote t -> typeDenote t
-    }.
-  
-  Instance Nbe_lam {a b: type} `{Nbe a} `{Nbe b}: Nbe <{{ a -> b }}> := {
-    reify v :=
-      LAM (fun x => reify (v (reflect (RET x))));
-    reflect e :=
-      fun x => reflect (APP e (reify x))
-    }.
-  
-  Instance Nbe_int : Nbe <{{ Num }}> := {
-    reify v := NUM v;
-    reflect v := termDenote v;
-    }.
-  (* end nbe *)
-  
-  Fixpoint resolver(t: type): Nbe t :=
-    match t with
-    | <{{ Num }}> => Nbe_int
-    | <{{ a -> b }}> => Nbe_lam
-    end.
+  Definition l4 :=
+    ltac:(meta <{ \x, @x + #1 + (@ (#3 + (#1))) }>).
+
+   
+  Compute l4.
+  Compute normalize l4.
+  Goal True.
+    pose proof l4.
+    pose proof @lift <{{ Num -> Num }}> (Term typeDenote).
+    pose proof (lift (@normalize' (Term typeDenote) (<{{ Num -> Num }}>)
+                            (NStep_lam' typeDenote <{{ Num }}> <{{ Num }}>))).
+    pose proof (lift normalize' l4).
 
   Arguments Nbe {t}.
   Arguments Nbe_lam [a b].
@@ -157,8 +155,7 @@ Module Stlc.
     @reify t (resolver t) (@reflect t (resolver t) e).
 
   Compute normalize <{ ((\x, @x + #1) #2) + #1 }>.
-
-  (* begin fof *)
+  
   Inductive fof: type -> Prop :=
   | fo_num: fof <{{ Num }}>
   | fof_num: forall a,
@@ -166,15 +163,13 @@ Module Stlc.
       fof <{{ Num -> a }}>.
 
   Hint Constructors fof: core.
-  (* end fof *)
-  
+
   Inductive value: forall {t: type}, Term typeDenote t -> Prop :=
   | Value_var: forall x, @value <{{ Num }}> (@RET typeDenote <{{ Num }}> x)
   | Value_const: forall (x: nat), @value <{{ Num }}> (NUM x).
 
   Hint Constructors value: core.
-
-  (* begin hnff *)
+  
   Inductive hnff: forall (t: type), Term typeDenote t -> Prop :=
   | HNF_num_ar: forall a f,
       (forall (arg: typeDenote <{{ Num }}>), hnff <{{ a }}> (f arg)) ->
@@ -184,15 +179,12 @@ Module Stlc.
       hnff <{{ Num }}> e.
   
   Hint Constructors hnff: core.
-  (* end hnff *)
-
-  (* begin correct *)
+  
   Theorem normalize_correct: forall (t: type) (e: Term typeDenote t),
       fof t  ->
       hnff t (normalize e).
   Proof with eauto.
-    induction t; dependent destruction e; inversion 1; subst; cbn...
+    induction t; intros e H; dependent destruction e; inversion H; subst; cbn...
   Defined.
-  (* end correct *)
-  
+
 End Stlc.
