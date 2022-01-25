@@ -116,15 +116,15 @@ Module Stlc.
       value e ->
       hnff <{{ Num }}> e.
 
+  Hint Constructors hnff: core.
+  Hint Constructors value: core.
+  Hint Constructors fof: core.
+  
   Theorem normalize_correct: forall (t: type) (e: Term typeDenote t),
       fof t  ->
       hnff t (normalize e).
   Proof with eauto.
-    intros.
-    generalize dependent e.
-    generalize dependent H.
-    induction t; intros; dependent destruction e; cbn; try constructor;
-      inversion H; clear H; subst; cbn; try constructor...
+    intros; induction H; dependent destruction e; cbn...
   Defined.
 
 End Stlc.

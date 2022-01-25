@@ -1,8 +1,6 @@
 From Coq Require Import Nat.
 From Coq Require Import Program.Equality.
 
-Set Maximal Implicit Insertion.
-
 Module Stlc.
 
   (** Use the same reified type for the whole development *)
@@ -110,13 +108,13 @@ Module Stlc.
     reflect v := termDenote v;
                                        }.
 
-  Instance NStep_lam v a b `{Nbe v <{{ a -> b }}>}: Nbe (Term v) <{{ a -> b }}> := {
-      reify v := RET v; 
+  Instance NStep_lam v a b `{Nbe v <{{ a -> b }}>} `{Nbe v a}: Nbe (Term v) <{{ a -> b }}> := {
+      reify v := RET (LAM (fun x => APP v (RET ((reflect (RET x))))));
       reflect e := termFlatten e
     }.
   
   Instance NStep_num v `{Nbe v <{{ Num }}>}: Nbe (Term v) <{{ Num }}> := {
-      reify v := RET v;
+      reify v := RET (normalize v);
       reflect e := termFlatten e
     }.
   
@@ -141,20 +139,14 @@ Module Stlc.
    
   Compute l4.
   Compute normalize l4.
-  Goal True.
-    pose proof l4.
-    pose proof @lift <{{ Num -> Num }}> (Term typeDenote).
-    pose proof (lift (@normalize' (Term typeDenote) (<{{ Num -> Num }}>)
-                            (NStep_lam' typeDenote <{{ Num }}> <{{ Num }}>))).
-    pose proof (lift normalize' l4).
-
-  Arguments Nbe {t}.
-  Arguments Nbe_lam [a b].
-
-  Definition normalize {t: type} (e: Term typeDenote t): Term typeDenote t :=
-    @reify t (resolver t) (@reflect t (resolver t) e).
 
   Compute normalize <{ ((\x, @x + #1) #2) + #1 }>.
+
+  Fixpoint resolver(t: type): Nbe typeDenote t :=
+    match t with
+    | <{{ Num }}> => Nbe_num
+    | <{{ a -> b }}> => @Nbe_lam a b (resolver a) (resolver b)
+    end.
   
   Inductive fof: type -> Prop :=
   | fo_num: fof <{{ Num }}>
@@ -182,9 +174,10 @@ Module Stlc.
   
   Theorem normalize_correct: forall (t: type) (e: Term typeDenote t),
       fof t  ->
-      hnff t (normalize e).
+      hnff t (@normalize typeDenote t (resolver t) e).
   Proof with eauto.
-    induction t; intros e H; dependent destruction e; inversion H; subst; cbn...
-  Defined.
+    intros; induction H; dependent destruction e; cbn in *...
+  Qed.
+
 
 End Stlc.
